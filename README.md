@@ -1,8 +1,16 @@
 # E-Commerce Data Pipeline — GCP / BigQuery
 
-A personal data engineering project simulating a real-world retail data infrastructure on Google Cloud Platform.
+A personal project I built to practice real-world data engineering on Google Cloud Platform.
 
-The pipeline centralises data from two sales channels — an online store (Shopify-style) and in-store POS transactions — into a unified BigQuery data warehouse, with analytics views ready for Looker Studio dashboards.
+The idea was simple: take data from two different sales channels — an online store (Shopify-style) and physical in-store POS transactions — and build a proper data warehouse that unifies everything into one place, ready for analytics and reporting.
+
+---
+
+## What it does
+
+The pipeline ingests raw sales data from two sources, loads it into BigQuery, transforms it into a clean star schema, and exposes analytics views that power a live Looker Studio dashboard.
+
+End result: a unified view of **5,500 transactions**, **€198,000+ in revenue**, across **12 months** of data — queryable in seconds.
 
 ---
 
@@ -16,7 +24,7 @@ The pipeline centralises data from two sales channels — an online store (Shopi
         │                    │
         ▼                    ▼
 ┌──────────────────────────────────┐
-│  BigQuery: ecommerce_raw         │  Raw layer — untransformed source data
+│  BigQuery: ecommerce_raw         │  Raw layer — data loaded as-is
 │  • shopify_orders                │
 │  • pos_transactions              │
 │  • order_items                   │
@@ -26,10 +34,10 @@ The pipeline centralises data from two sales channels — an online store (Shopi
                │
                ▼  SQL transformation (step3_transform.sql)
 ┌──────────────────────────────────┐
-│  BigQuery: ecommerce_dwh         │  Star schema — analytics-ready
+│  BigQuery: ecommerce_dwh         │  Star schema — clean, analytics-ready
 │                                  │
 │  Fact table:                     │
-│  • fact_sales (partitioned/date) │  ← unified Shopify + POS
+│  • fact_sales                    │  ← unified Shopify + POS in one table
 │                                  │
 │  Dimension tables:               │
 │  • dim_customers                 │
@@ -46,11 +54,7 @@ The pipeline centralises data from two sales channels — an online store (Shopi
                │
                ▼
 ┌──────────────────────────────────┐
-│  Looker Studio Dashboard         │  Connected directly to BigQuery views
-│  • Revenue by channel            │
-│  • Top products                  │
-│  • Sales trends over time        │
-│  • Customer segments             │
+│  Looker Studio Dashboard         │  Live — connected directly to BigQuery
 └──────────────────────────────────┘
 ```
 
@@ -59,7 +63,7 @@ The pipeline centralises data from two sales channels — an online store (Shopi
 ## Stack
 
 - **Python 3** — data generation and BigQuery ingestion
-- **Google BigQuery** — data warehouse (raw + transformed layers)
+- **Google BigQuery** — data warehouse (project: `ecommerce-data-pipeline-488523`)
 - **SQL** — ELT transformations, star schema modelling
 - **Looker Studio** — dashboards connected to BigQuery views
 - **Google Cloud Platform** — infrastructure
@@ -70,9 +74,9 @@ The pipeline centralises data from two sales channels — an online store (Shopi
 
 ```
 ecommerce-data-pipeline/
-├── step1_generate_data.py        Generate sample CSV data
-├── step2_upload_to_bigquery.py   Load CSVs into BigQuery raw layer
-├── step3_transform.sql           SQL: star schema + analytics views
+├── step1_generate_data.py        Generates realistic sample CSV data
+├── step2_upload_to_bigquery.py   Loads CSVs into BigQuery raw layer
+├── step3_transform.sql           Star schema + analytics views
 └── README.md
 ```
 
@@ -80,58 +84,68 @@ ecommerce-data-pipeline/
 
 ## How to Run
 
-### 1. Prerequisites
+### Prerequisites
 
 ```bash
 pip install google-cloud-bigquery pandas pyarrow
 gcloud auth application-default login
+gcloud auth application-default set-quota-project ecommerce-data-pipeline-488523
 ```
 
-Set your GCP project ID in `step2_upload_to_bigquery.py`:
-```python
-PROJECT_ID = "your-project-id"
-```
-
-### 2. Generate sample data
+### Step 1 — Generate sample data
 
 ```bash
 python step1_generate_data.py
 ```
 
-Creates 5 CSV files simulating 200 online orders and 300 in-store transactions.
+Generates 5 CSV files:
+- 2,000 Shopify online orders
+- 3,500 POS in-store transactions
+- 10,658 order line items
+- 500 customers across 10 French cities
+- 20 product SKUs across 5 categories
 
-### 3. Load into BigQuery
+Date range: March 2024 → February 2025 (12 months)
+
+### Step 2 — Load into BigQuery
 
 ```bash
 python step2_upload_to_bigquery.py
 ```
 
-Loads all CSVs into `ecommerce_raw` dataset. Load is idempotent (`WRITE_TRUNCATE`) — safe to re-run.
+Loads all 5 CSVs into the `ecommerce_raw` dataset. The load uses `WRITE_TRUNCATE` so it's safe to re-run without creating duplicates.
 
-### 4. Run SQL transformations
+### Step 3 — Run SQL transformations
 
-Open `step3_transform.sql` in the BigQuery console and run each block in order to build:
-- The `ecommerce_dwh` dataset
-- Dimension tables (dim_customers, dim_products, dim_date, dim_channels)
-- The unified `fact_sales` table partitioned by date
-- Four analytics views
+Open `step3_transform.sql` in the BigQuery console and run each block in order:
 
-### 5. Connect to Looker Studio
+1. Create the `ecommerce_dwh` dataset
+2. Build dimension tables (dim_customers, dim_products, dim_date, dim_channels)
+3. Build the unified `fact_sales` table
+4. Create the four analytics views
 
-Connect Looker Studio to the `ecommerce_dwh` views for live dashboards.
+### Step 4 — Looker Studio
+
+Connect Looker Studio to the views in `ecommerce_dwh` for live dashboards.
 
 ---
 
 ## Key Design Decisions
 
 **Two-layer architecture (raw + dwh)**
-Raw data is loaded untouched. Transformations happen in a separate dataset. If requirements change, raw data can always be reprocessed.
+The raw layer keeps data exactly as it arrives — no modifications. All transformations happen in the dwh layer. This means if something breaks or requirements change, I can always re-run the transformations from the original data without losing anything.
 
-**ELT over ETL**
-Data is loaded first, then transformed inside BigQuery using SQL. BigQuery handles transformation at scale more efficiently than preprocessing outside.
+**ELT not ETL**
+I load raw data first, then transform inside BigQuery using SQL. BigQuery is built for this — it handles large-scale SQL transformations much more efficiently than doing it outside before loading.
 
-**fact_sales partitioned by date**
-Partitioning limits the data scanned per query. For a query on "last week's sales," only 7 partitions are read instead of the full table — reduces cost and improves speed.
+**UNION ALL to unify two channels**
+Shopify and the POS system use completely different schemas and ID formats. Rather than trying to force them into the same shape at ingestion, I load them separately into raw tables and unify them in the `fact_sales` table using a UNION ALL. This keeps the raw data clean and makes the transformation logic explicit and easy to maintain.
 
-**UNION ALL to unify channels**
-Shopify and POS use different schemas and ID formats. A UNION ALL in fact_sales normalises both into a single consistent table, so all downstream analytics work across both channels without needing to know the source.
+**Idempotent pipeline**
+Every load step uses `WRITE_TRUNCATE` and every SQL step uses `CREATE OR REPLACE`. This means the entire pipeline can be re-run from scratch at any time and will produce the same result — no duplicates, no conflicts.
+
+---
+
+## Live Dashboard
+
+[View the Looker Studio Dashboard](https://lookerstudio.google.com/reporting/667b11ca-3d6d-428c-af96-02787f5a2953)
